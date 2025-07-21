@@ -28,6 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.GrandExchangeOfferState;
 import net.runelite.api.events.GrandExchangeOfferChanged;
+
 import java.io.FileWriter;
 import java.io.File;
 import java.io.IOException;
@@ -35,11 +36,8 @@ import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Scanner;
-import static net.runelite.api.GrandExchangeOfferState.BUYING;
-import static net.runelite.api.GrandExchangeOfferState.CANCELLED_BUY;
-import static net.runelite.api.GrandExchangeOfferState.CANCELLED_SELL;
-import static net.runelite.api.GrandExchangeOfferState.EMPTY;
-import static net.runelite.api.GrandExchangeOfferState.SELLING;
+
+import static net.runelite.api.GrandExchangeOfferState.*;
 
 @Slf4j
 public class ExchangeLoggerWriter
@@ -67,26 +65,28 @@ public class ExchangeLoggerWriter
 
 		prevQuantity = new int[8];
 		prevState = new GrandExchangeOfferState[8];
-		Arrays.fill(prevQuantity, -1);          //Default to -1, because 0 is a valid state
+		Arrays.fill(prevQuantity, -1);  // 0 is valid, -1 means uninitialized
 
 		formatting = new ExchangeLoggerFormatting();
-		logFile = new File(logPath);
+
+		String filename = rewrite ? logPath : buildDatedFilename();
+		logFile = new File(filename);
 
 		if (logFile.isFile())
 		{
 			if (rewrite)
 			{
-				removeCurrentFile();			//If user only want one log file
-				logFile = createLog(logPath);
+				removeCurrentFile();
+				logFile = createLog(filename);
 			}
 			else
 			{
-				fileDateCheck();				//Check if current log is for today's date
+				fileDateCheck();
 			}
 		}
 		else
 		{
-			logFile = createLog(logPath);       //First time running plugin
+			logFile = createLog(filename);
 		}
 	}
 
@@ -98,7 +98,7 @@ public class ExchangeLoggerWriter
 		{
 			return;
 		}
-		else if (!rewrite && !logDate.equals(time.substring(0, logDate.length())))  //New log if date changed during run-time
+		else if (!rewrite && !logDate.equals(time.substring(0, logDate.length())))
 		{
 			preserveCurrentFile(logDate);
 		}
@@ -106,7 +106,7 @@ public class ExchangeLoggerWriter
 		GrandExchangeOffer offer = event.getOffer();
 		int slot = event.getSlot();
 
-		if (duplicateHandler(offer, slot))         //Filter out duplicated events
+		if (duplicateHandler(offer, slot))
 		{
 			return;
 		}
@@ -116,10 +116,8 @@ public class ExchangeLoggerWriter
 	private void writeFile(GrandExchangeOffer offer, int slot, String time)
 	{
 		String writeLine = "";
-		try
+		try (FileWriter writer = new FileWriter(logFile, true))
 		{
-			FileWriter writer = new FileWriter(logFile, true);
-
 			switch (format)
 			{
 				case TEXT:
@@ -135,19 +133,14 @@ public class ExchangeLoggerWriter
 
 			writer.write(writeLine + "\n");
 			writer.flush();
-			writer.close();
 
 		}
 		catch (IOException e)
 		{
-			log.warn("An error occurred while writing to log file: " + e.toString());
+			log.warn("An error occurred while writing to log file: " + e);
 		}
 	}
 
-	//GE OfferChanged events sometimes send duplicates of buying,selling and cancelled..
-	//This method will compare current event with the previous.
-	// 2 buying/selling events in sequence in the same slot can't have the same QuantitySold
-	// 2 cancelled_buy/sell events in sequence in the same slot shouldn't be possible
 	private boolean duplicateHandler(GrandExchangeOffer offer, int slot)
 	{
 		boolean duplicate = false;
@@ -157,9 +150,9 @@ public class ExchangeLoggerWriter
 		{
 			duplicate = true;
 		}
-		else    //EMPTY is always qty = 0, which makes next buy/sell assume it's a duplicate. Set it to -1
+		else
 		{
-			prevQuantity[slot] = ((offer.getState() == EMPTY) ? -1 : offer.getQuantitySold());
+			prevQuantity[slot] = (offer.getState() == EMPTY) ? -1 : offer.getQuantitySold();
 			prevState[slot] = offer.getState();
 		}
 		return duplicate;
@@ -168,37 +161,32 @@ public class ExchangeLoggerWriter
 	private String currentDateTime(String form)
 	{
 		Date date = new Date();
-		SimpleDateFormat formatter = new SimpleDateFormat(form);   //"yyyy-MM-dd HH:mm:ss"
+		SimpleDateFormat formatter = new SimpleDateFormat(form);
 		return formatter.format(date);
 	}
 
-	//Adding _[fileDate] at the end of the current file name and creates a new log
 	private void preserveCurrentFile(String fileDate)
 	{
-		String fileType = ".log";
-		String rename = logPath.substring(0, logPath.length() - fileType.length());
-		rename = rename + "_" + fileDate + fileType;
+		String extension = getExtension();
+		String renamed = logPath.replace(extension, "_" + fileDate + extension);
 
-		if (!logFile.renameTo(new File(rename)))
+		if (!logFile.renameTo(new File(renamed)))
 		{
-			log.debug("Failed to rename previous file to: " + rename);
+			log.debug("Failed to rename previous file to: " + renamed);
 		}
-		logFile = createLog(logPath);
+		logFile = createLog(buildDatedFilename());
 	}
 
-	//on start: If the current log file does not have the current date, store it and create a new one
 	private void fileDateCheck()
 	{
 		String fileDate = "";
 
-		try
+		try (Scanner reader = new Scanner(logFile))
 		{
-			Scanner reader = new Scanner(logFile);	//Read current log´s date
 			if (reader.hasNextLine())
 			{
 				fileDate = reader.nextLine();
-
-				if (fileDate.contains("{"))		//Json format
+				if (fileDate.contains("{"))
 				{
 					String remove = "{\"date\":\"";
 					fileDate = fileDate.substring(remove.length(), logDate.length() + remove.length());
@@ -208,11 +196,10 @@ public class ExchangeLoggerWriter
 					fileDate = fileDate.substring(0, logDate.length());
 				}
 			}
-			reader.close();
 		}
 		catch (IOException e)
 		{
-			log.warn("Couldn't read file: " + logFile.toString() + " " + e.toString());
+			log.warn("Couldn't read file: " + logFile + " " + e);
 		}
 
 		if (!fileDate.equals(logDate) && !fileDate.equals(""))
@@ -221,13 +208,13 @@ public class ExchangeLoggerWriter
 		}
 	}
 
-	private File createLog(String path)
+	private File createLog(String fullPath)
 	{
 		logDate = currentDateTime("yyyy-MM-dd");
 
 		try
 		{
-			File log = new File(path);
+			File log = new File(fullPath);
 			if (log.createNewFile())
 			{
 				fileExist = true;
@@ -236,26 +223,43 @@ public class ExchangeLoggerWriter
 		}
 		catch (IOException e)
 		{
-			log.warn("An error occurred while creating a new log file" + e.toString());
+			log.warn("Error creating new log file: " + e);
 		}
 
 		fileExist = false;
 		return null;
 	}
 
-	//Removes current logFile and creates a new one, used on startup if user only wants one log file
+	private String buildDatedFilename()
+	{
+		String base = logPath.replaceAll("\\.(log|txt|json|tsv)?$", "");
+		String extension = getExtension();
+		return base + "-" + logDate + extension;
+	}
+
+	private String getExtension()
+	{
+		switch (format)
+		{
+			case JSON: return ".json";
+			case TABULAR: return ".tsv";
+			case TEXT:
+			default: return ".txt";
+		}
+	}
+
 	public void removeCurrentFile()
 	{
 		try
 		{
 			if (!logFile.delete())
 			{
-				log.debug("Failed to delete old log file: " + logFile.toString());
+				log.debug("Failed to delete old log file: " + logFile);
 			}
 		}
 		catch (Exception e)
 		{
-			log.warn("Error deleting old log file: " + e.toString());
+			log.warn("Error deleting old log file: " + e);
 		}
 	}
 

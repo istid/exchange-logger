@@ -39,8 +39,8 @@ import java.io.File;
 
 @Slf4j
 @PluginDescriptor(
-	name = "Exchange Logger",
-	description = "Stores all GE transactions in log file(s)"
+		name = "Exchange Logger",
+		description = "Stores all GE transactions in log file(s)"
 )
 public class ExchangeLoggerPlugin extends Plugin
 {
@@ -51,7 +51,6 @@ public class ExchangeLoggerPlugin extends Plugin
 	private ExchangeLoggerConfig config;
 
 	private final String dirName = File.separator + "exchange-logger";
-	private final String logName = File.separator + "exchange.log";
 
 	public static final String CONFIG_GROUP = "exchangelogger";
 	private ExchangeLoggerFormat format;
@@ -68,7 +67,7 @@ public class ExchangeLoggerPlugin extends Plugin
 
 		String dir = RuneLite.RUNELITE_DIR.getPath() + dirName;
 		new File(dir).mkdirs();
-		logPath = dir + logName;
+		logPath = dir + File.separator + getBaseLogFileName(format);
 
 		writer = new ExchangeLoggerWriter(logPath, format, rewrite);
 	}
@@ -84,16 +83,15 @@ public class ExchangeLoggerPlugin extends Plugin
 	{
 		if (event.getGroup().equals(CONFIG_GROUP))
 		{
-			if (event.getKey().equals("logFormat"))		//Change log file output format
+			if (event.getKey().equals("logFormat"))
 			{
 				format = config.logFormat();
 				writer.setFormat(format);
 			}
-			else if (event.getKey().equals("rewriteLog"))	//Delete all old data when logging in. Only uses one log file
+			else if (event.getKey().equals("rewriteLog"))
 			{
 				rewrite = config.rewriteLog();
 				writer.setRewrite(rewrite);
-
 			}
 		}
 	}
@@ -101,7 +99,6 @@ public class ExchangeLoggerPlugin extends Plugin
 	@Subscribe
 	public void onGrandExchangeOfferChanged(GrandExchangeOfferChanged offerEvent)
 	{
-		// Trades are cleared by the client during LOGIN_SCREEN/HOPPING/LOGGING_IN, ignore those
 		if (client.getGameState() == GameState.LOGGED_IN)
 		{
 			writer.grandExchangeEvent(offerEvent);
@@ -112,5 +109,16 @@ public class ExchangeLoggerPlugin extends Plugin
 	ExchangeLoggerConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(ExchangeLoggerConfig.class);
+	}
+
+	private String getBaseLogFileName(ExchangeLoggerFormat format)
+	{
+		switch (format)
+		{
+			case JSON: return "exchange.json";
+			case TABULAR: return "exchange.tsv";
+			case TEXT:
+			default: return "exchange.txt";
+		}
 	}
 }
