@@ -24,6 +24,7 @@
  */
 package com.exchangelogger;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.GrandExchangeOffer;
@@ -71,7 +72,7 @@ public class ExchangeLoggerWriter
 	private String activePath;
 	private String logDate;
 
-	ExchangeLoggerWriter(String path, ExchangeLoggerFormat form, boolean re, boolean split, ScheduledExecutorService executor)
+	ExchangeLoggerWriter(String path, ExchangeLoggerFormat form, boolean re, boolean split, ScheduledExecutorService executor, Gson gson)
 	{
 		fileExist = true;
 		logDate = currentDateTime("yyyy-MM-dd");
@@ -89,7 +90,7 @@ public class ExchangeLoggerWriter
 		Arrays.fill(prevQuantity, -1);          //Default to -1, because 0 is a valid state
 		Arrays.fill(prevItemId, -1);
 
-		formatting = new ExchangeLoggerFormatting();
+		formatting = new ExchangeLoggerFormatting(gson);
 		openLogFile(computeLogPath(null));
 	}
 

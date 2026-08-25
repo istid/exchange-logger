@@ -25,14 +25,19 @@
 package com.exchangelogger;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import net.runelite.api.GrandExchangeOfferState;
 import static net.runelite.api.GrandExchangeOfferState.*;
 
 public class ExchangeLoggerFormatting
 {
-	// Stateless; reused across the JSON formatter to avoid rebuilding it per call.
-	private static final Gson GSON = new GsonBuilder().create();
+	// Always use the client's injected Gson rather than constructing our own -
+	// plugin-hub's packager rejects plugins that create fresh Gson instances.
+	private final Gson gson;
+
+	ExchangeLoggerFormatting(Gson gson)
+	{
+		this.gson = gson;
+	}
 
 	public String plainText(ExchangeLoggerSlotStatus status)
 	{
@@ -88,12 +93,12 @@ public class ExchangeLoggerFormatting
 
 	public String json(ExchangeLoggerSlotStatus status)
 	{
-		return GSON.toJson(status);
+		return gson.toJson(status);
 	}
 
 	public ExchangeLoggerSlotStatus parseJson(String line)
 	{
-		return GSON.fromJson(line, ExchangeLoggerSlotStatus.class);
+		return gson.fromJson(line, ExchangeLoggerSlotStatus.class);
 	}
 
 	public boolean anyEqualState(GrandExchangeOfferState expected, GrandExchangeOfferState ...array)

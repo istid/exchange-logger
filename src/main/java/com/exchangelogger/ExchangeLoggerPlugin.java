@@ -24,6 +24,7 @@
  */
 package com.exchangelogger;
 
+import com.google.gson.Gson;
 import com.google.inject.Provides;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
@@ -59,6 +60,9 @@ public class ExchangeLoggerPlugin extends Plugin
 	@Inject
 	private ItemManager itemManager;
 
+	@Inject
+	private Gson gson;
+
 	private final String dirName = File.separator + "exchange-logger";
 	// No extension here - ExchangeLoggerWriter appends one matching the
 	// selected log format (.log/.csv/.json).
@@ -81,7 +85,7 @@ public class ExchangeLoggerPlugin extends Plugin
 		new File(dir).mkdirs();
 		logPath = dir + logName;
 
-		writer = new ExchangeLoggerWriter(logPath, format, rewrite, config.splitByAccount(), executor);
+		writer = new ExchangeLoggerWriter(logPath, format, rewrite, config.splitByAccount(), executor, gson);
 	}
 
 	@Override
