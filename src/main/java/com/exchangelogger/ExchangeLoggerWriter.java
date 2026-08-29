@@ -34,8 +34,10 @@ import java.io.FileWriter;
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.ScheduledExecutorService;
 import static net.runelite.api.GrandExchangeOfferState.BUYING;
@@ -54,6 +56,14 @@ public class ExchangeLoggerWriter
 	// after the fact using the average per-unit price (worth / qty).
 	private static final int GE_TAX_MIN_PRICE = 50;
 	private static final int GE_TAX_CAP_PER_ITEM = 5_000_000;
+
+	// Split By Account: client.getLocalPlayer().getName() can transiently be null/empty
+	// right around login before the game populates it, even though there's already a GE
+	// event to log. Rather than immediately falling back to the shared file for those,
+	// buffer them and flush once a later event does carry a real account name - capped so
+	// a genuinely-never-resolved name (shouldn't normally happen) can't grow this forever.
+	private static final int MAX_PENDING_UNKNOWN_ACCOUNT = 50;
+	private final List<ExchangeLoggerSlotStatus> pendingUnknownAccount = new ArrayList<>();
 
 	private File logFile;
 	private volatile boolean fileExist;
@@ -157,6 +167,44 @@ public class ExchangeLoggerWriter
 			return;
 		}
 
+		if (splitByAccount && (accountName == null || accountName.isEmpty()))
+		{
+			bufferUntilAccountKnown(status);
+			return;
+		}
+
+		if (!pendingUnknownAccount.isEmpty())  //A name just became available - these were waiting on it
+		{
+			flushPending(accountName);
+		}
+
+		routeAndWrite(status, accountName);
+	}
+
+	// Not routed by account yet - hold onto it rather than immediately falling back to
+	// the shared file, since the account name is very likely just a tick away.
+	private void bufferUntilAccountKnown(ExchangeLoggerSlotStatus status)
+	{
+		pendingUnknownAccount.add(status);
+		if (pendingUnknownAccount.size() > MAX_PENDING_UNKNOWN_ACCOUNT)
+		{
+			ExchangeLoggerSlotStatus oldest = pendingUnknownAccount.remove(0);
+			routeAndWrite(oldest, null);
+		}
+	}
+
+	private void flushPending(String accountName)
+	{
+		List<ExchangeLoggerSlotStatus> toFlush = new ArrayList<>(pendingUnknownAccount);
+		pendingUnknownAccount.clear();
+		for (ExchangeLoggerSlotStatus buffered : toFlush)
+		{
+			routeAndWrite(buffered, accountName);
+		}
+	}
+
+	private void routeAndWrite(ExchangeLoggerSlotStatus status, String accountName)
+	{
 		String targetPath = computeLogPath(accountName);
 		if (!targetPath.equals(activePath))    //Switch (or create) the file for this account
 		{
@@ -406,6 +454,20 @@ public class ExchangeLoggerWriter
 	public void setSplitByAccount(boolean split)
 	{
 		splitByAccount = split;
+		if (!split)
+		{
+			// Routing no longer depends on the account name - write anything that was
+			// still waiting on one rather than leaving it stuck.
+			executor.execute(this::flushPendingToSharedFile);
+		}
+	}
+
+	private synchronized void flushPendingToSharedFile()
+	{
+		if (!pendingUnknownAccount.isEmpty())
+		{
+			flushPending(null);
+		}
 	}
 
 	// Lets callers skip event-preparation work (e.g. resolving the item name) up front
